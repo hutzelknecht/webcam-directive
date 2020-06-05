@@ -8,6 +8,28 @@ You can easily add it as a module to your own app.
 
 A complete example can be found at [http://jonashartmann.github.io/webcam-directive](http://jonashartmann.github.io/webcam-directive) (*gh-pages*)
 
+## Changes in this Fork
+
+* overrideable constraints when getting the userMedia:
+
+```js
+    this.channel = {
+        mediaConstraint: {
+            video: {
+                optional: [
+                    { minWidth: 2592 },
+                    { minHeight: 1944 }
+                ],
+                mandatory: {
+                    minWidth: 640,
+                    minHeight: 480
+                }
+            }
+        },
+        video: null // Will reference the video element on success
+    };
+```
+
 ## Download
 [![NPM](https://nodei.co/npm/webcam.png?compact=true)](https://nodei.co/npm/webcam/)
 

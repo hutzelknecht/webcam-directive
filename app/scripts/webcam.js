@@ -41,6 +41,7 @@ angular.module('webcam', [])
         onStream: '&',
         onStreaming: '&',
         placeholder: '=',
+
         config: '=channel'
       },
       link: function postLink($scope, element) {
@@ -147,7 +148,15 @@ angular.module('webcam', [])
           }
 
           var mediaConstraint = { video: true, audio: false };
-
+          var mediaConstraintOverrides = $scope.config.mediaConstraint;
+          if (mediaConstraintOverrides) {
+            // merge (vanilla js)
+            for (var prop in mediaConstraintOverrides) {
+              if (mediaConstraintOverrides.hasOwnProperty(prop)) {
+                mediaConstraint[prop] = mediaConstraintOverrides[prop];
+              }
+            }
+          }
           if (window.hasModernUserMedia) {
             // The spec has changed towards a Promise based interface
             navigator.getMedia(mediaConstraint)
