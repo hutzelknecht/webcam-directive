@@ -1,3 +1,5 @@
+import  _ from 'lodash';
+
 /**
  * Webcam Directive
  *
@@ -12,9 +14,9 @@
   // GetUserMedia is not yet supported by all browsers
   // Until then, we need to handle the vendor prefixes
   navigator.getMedia = ( navigator.getUserMedia ||
-                        navigator.webkitGetUserMedia ||
-                        navigator.mozGetUserMedia ||
-                        navigator.msGetUserMedia);
+    navigator.webkitGetUserMedia ||
+    navigator.mozGetUserMedia ||
+    navigator.msGetUserMedia);
 
   // Latest specs modified how to access it
   window.hasModernUserMedia = 'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices;
@@ -24,7 +26,7 @@
 
   // Checks if feature support is available on the client browser
   window.hasUserMedia = function hasUserMedia() {
-    return navigator.getMedia ? true : false;
+    return !!navigator.getMedia;
   };
 })();
 
@@ -36,18 +38,19 @@ angular.module('webcam', [])
       replace: true,
       transclude: true,
       scope:
-      {
-        onError: '&',
-        onStream: '&',
-        onStreaming: '&',
-        placeholder: '=',
-
-        config: '=channel'
-      },
+        {
+          onError: '&',
+          onStream: '&',
+          onStreams: '&',
+          onStreaming: '&',
+          placeholder: '=',
+          facing: '<', // 'environment' | 'user' | 'left' | 'right'
+          config: '=channel'
+        },
       link: function postLink($scope, element) {
         var videoElem = null,
-            videoStream = null,
-            placeholder = null;
+          videoStream = null,
+          placeholder = null;
 
         $scope.config = $scope.config || {};
 
@@ -85,17 +88,35 @@ angular.module('webcam', [])
         };
 
         // called when camera stream is loaded
-        var onSuccess = function onSuccess(stream) {
-          videoStream = stream;
+        var onSuccess = function onSuccess(medias) {
+          // first filter out any webcams that don't point in the desired direction
+          if (
+            $scope.config.mediaConstraint
+            && $scope.config.mediaConstraint.video
+            && $scope.config.mediaConstraint.video.facing
+            && !_.some(medias, (media)=>{
+              return media.capabilities.facingMode === $scope.config.mediaConstraint.video.facing;
+            })
+          ) {
+            medias = _.filter(medias, (media)=>{
+              return !media.capabilities.facingMode.length || media.capabilities.facingMode === $scope.config.mediaConstraint.video.facing;
+            });
+          }
+
+          medias = _.sortBy(medias, (media)=>media.capabilities.width);
+          let highestStream = medias[0].stream; // highest possible resolution
+          let highestCapabilities = medias[0].capabilities;
+          let lowestStream = medias[medias.length - 1].stream; // lowest possible resolution
+          videoStream = highestStream;
 
           if (window.hasModernUserMedia) {
-            videoElem.srcObject = stream;
+            videoElem.srcObject = highestStream;
           } else if (navigator.mozGetUserMedia) {
             // Firefox supports a src object
-            videoElem.mozSrcObject = stream;
+            videoElem.mozSrcObject = highestStream;
           } else {
             var vendorURL = window.URL || window.webkitURL;
-            videoElem.src = vendorURL.createObjectURL(stream);
+            videoElem.src = vendorURL.createObjectURL(highestStream);
           }
 
           /* Start playing the video to show the stream from the webcam */
@@ -104,7 +125,11 @@ angular.module('webcam', [])
 
           /* Call custom callback */
           if ($scope.onStream) {
-            $scope.onStream({stream: stream});
+            $scope.onStream({ stream: highestStream, capabilities: highestCapabilities });
+          }
+          if ($scope.onStreams) {
+
+            $scope.onStreams({ streams: medias });
           }
         };
 
@@ -117,13 +142,11 @@ angular.module('webcam', [])
 
           /* Call custom callback */
           if ($scope.onError) {
-            $scope.onError({err:err});
+            $scope.onError({err: err});
           }
-
-          return;
         };
 
-        var startWebcam = function startWebcam() {
+        var startWebcam = async function startWebcam() {
           videoElem = document.createElement('video');
           videoElem.setAttribute('class', 'webcam-live');
           videoElem.setAttribute('autoplay', '');
@@ -147,24 +170,73 @@ angular.module('webcam', [])
             return;
           }
 
-          var mediaConstraint = { video: true, audio: false };
-          var mediaConstraintOverrides = $scope.config.mediaConstraint;
+          // var mediaConstraint = {
+          //     video: true,
+          //     audio: false
+          // };
+          // var mediaConstraintOverrides = $scope.config.mediaConstraint;
+          // if (mediaConstraintOverrides) {
+          //     // merge (vanilla js)
+          //     for (var prop in mediaConstraintOverrides) {
+          //         if (mediaConstraintOverrides.hasOwnProperty(prop)) {
+          //             mediaConstraint[prop] = mediaConstraintOverrides[prop];
+          //         }
+          //     }
+          // }
+
+          // find the best resolution
+          const qvga =   { video: {width: {exact: 320},  height: {exact: 240}}   };
+          const vga =    { video: {width: {exact: 640},  height: {exact: 480}}   };
+          const hd =     { video: {width: {exact: 1280}, height: {exact: 720}}   }; // 720p (1MP)
+          const fullHd = { video: {width: {exact: 1920}, height: {exact: 1080}}  }; // 1080p (2MP)
+          const _3mp =   { video: {width: {exact: 2048}, height: {exact: 1536}}  }; // 3MP
+          const _4mp =   { video: {width: {exact: 2688}, height: {exact: 1520}}  }; // 2K
+          const _5mp =   { video: {width: {exact: 2592}, height: {exact: 1944}}  }; // Microsoft Life Cam (Front)
+          const _6mp =   { video: {width: {exact: 3072}, height: {exact: 2048}}  }; // 6MP
+          const _8mp =   { video: {width: {exact: 3840}, height: {exact: 2160}}  }; // Microsoft Life Cam (Rear) - UHD
+          const fourK =  { video: {width: {exact: 4096}, height: {exact: 2160}}  };
+          const eightK = { video: {width: {exact: 7680}, height: {exact: 4320}}  };
+          let testableResoutions = [qvga, vga, hd, fullHd, _3mp, _4mp, _5mp, _6mp, _8mp, fourK, eightK];
+          let mediaConstraintOverrides = $scope.config.mediaConstraint;
           if (mediaConstraintOverrides) {
-            // merge (vanilla js)
-            for (var prop in mediaConstraintOverrides) {
-              if (mediaConstraintOverrides.hasOwnProperty(prop)) {
-                mediaConstraint[prop] = mediaConstraintOverrides[prop];
+            _.forEach(testableResoutions, (testableResolution, index)=>{
+              testableResolution = _.merge(testableResolution, mediaConstraintOverrides);
+              testableResolution.audio = false;
+            });
+          }
+          let availableStreams = [];
+          let promises = [];
+
+          // stick with the highest resolution
+          _.forEach(testableResoutions, _constraint => {
+            // if (!highest) {
+            try {
+              if (window.hasModernUserMedia) {
+                // The spec has changed towards a Promise based interface
+                promises.push(
+                  navigator.getMedia(_constraint)
+                    .then(function(media){
+                      availableStreams.push({
+                        width: _constraint.video.width.exact,
+                        stream: media,
+                        capabilities: media.getTracks()[0] && media.getTracks()[0].getCapabilities()
+                      });
+                    })
+                    .catch((ignore)=>{})
+                );
+              } else {
+                navigator.getMedia(_constraint, onSuccess, onFailure);
               }
+            } catch (ignore) {}
+
+          });
+          Promise.all(promises).then(()=>{
+            if (availableStreams.length) {
+              onSuccess(availableStreams);
+            } else {
+              onFailure(new Error('no streams could be established for a webcam'));
             }
-          }
-          if (window.hasModernUserMedia) {
-            // The spec has changed towards a Promise based interface
-            navigator.getMedia(mediaConstraint)
-              .then(onSuccess)
-              .catch(onFailure);
-          } else {
-            navigator.getMedia(mediaConstraint, onSuccess, onFailure);
-          }
+          });
 
           /* Start streaming the webcam data when the video element can play
            * It will do it only once
@@ -173,7 +245,7 @@ angular.module('webcam', [])
             if (!isStreaming) {
               var scale = width / videoElem.videoWidth;
               height = (videoElem.videoHeight * scale) ||
-                        $scope.config.videoHeight;
+                $scope.config.videoHeight;
               videoElem.setAttribute('width', width);
               videoElem.setAttribute('height', height);
               isStreaming = true;

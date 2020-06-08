@@ -4,3 +4,4 @@ node_modules
 app/components
 usermedia.sublime-project
 usermedia.sublime-workspace
+/*.iml

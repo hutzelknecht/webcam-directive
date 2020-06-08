@@ -4,7 +4,9 @@
   "version": "3.2.1",
   "license": "MIT",
   "main": "app/scripts/webcam.js",
-  "dependencies": {},
+  "dependencies": {
+    "lodash": "4.17.15"
+  },
   "devDependencies": {
     "grunt": "~0.4.1",
     "grunt-bower-requirejs": "~0.4.1",
@@ -45,6 +47,8 @@
     "node": ">=0.10.0"
   },
   "scripts": {
+    "start": "grunt watch",
+    "build": "grunt build",
     "test": "grunt ci"
   },
   "repository": "git@github.com:jonashartmann/webcam-directive.git"
